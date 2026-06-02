@@ -1,58 +1,52 @@
 // ==UserScript==
 // @name         e-hentai-infinite-scroll
 // @namespace    https://github.com/IronKinoko/e-hentai-infinite-scroll
-// @version      1.0.3
+// @version      1.0.5
 // @description  Exhentai infinite scroll scripts.
 // @author       IronKinoko
 // @match        https://exhentai.org/s/*
 // @match        https://exhentai.org/g/*
+// @match        https://e-hentai.org/s/*
+// @match        https://e-hentai.org/g/*
 // @grant        none
+// @downloadURL    https://github.com/IronKinoko/e-hentai-infinite-scroll/raw/master/index.user.js
 // @updateURL    https://github.com/IronKinoko/e-hentai-infinite-scroll/raw/master/index.user.js
 // ==/UserScript==
 
 (() => {
   // src/views/comic.ts
   function setup() {
-    function api_call(page2, nextImgKey2) {
+    function api_call(page, imgkey) {
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("POST", api_url);
+        xhr.open("POST", window.api_url);
         xhr.setRequestHeader("Content-Type", "application/json");
         xhr.withCredentials = true;
         xhr.onreadystatechange = () => {
-          if (xhr.readyState === xhr.DONE) {
-            resolve(JSON.parse(xhr.responseText));
-          }
+          if (xhr.readyState === xhr.DONE) resolve(JSON.parse(xhr.responseText));
         };
-        xhr.send(JSON.stringify({
-          method: "showpage",
-          gid,
-          page: page2,
-          imgkey: nextImgKey2,
-          showkey
-        }));
+        const [method, gid, showkey] = ["showpage", window.gid, window.showkey];
+        xhr.send(JSON.stringify({ method, gid, page, imgkey, showkey }));
       });
     }
     const maxPageSize = parseInt(document.querySelector("#i2 > div.sn > div > span:nth-child(2)").textContent);
     let nextImgKey = document.querySelector("#i3 a[onclick]").onclick.toString().match(/'(?<key>.*)'/).groups.key;
-    let page = startpage + 1;
+    let currentPage = window.startpage + 1;
     let isLoading2 = false;
-    async function loadImgInfo() {
-      if (maxPageSize < page)
-        return;
-      if (isLoading2)
-        return;
+    async function loadImgInfo() { try {
+      if (maxPageSize < currentPage) return;
+      if (isLoading2) return;
       isLoading2 = true;
-      const res = await api_call(page, nextImgKey);
+      const res = await api_call(currentPage, nextImgKey);
       isLoading2 = false;
       const groups = res.i3.match(/'(?<key>.*)'.*src="(?<src>.*)?".*nl\('(?<nl>.*)'\)/).groups;
-      renderImg(page, {
+      renderImg(currentPage, {
         ...groups,
         source: res.s[0] === "/" ? res.s : "/" + res.s
       });
       nextImgKey = groups.key;
-      page++;
-    }
+      currentPage++;
+    } catch (e) { console.error(e); }}
     function renderImg(page2, info) {
       const { key, source } = info;
       const img = document.createElement("img");
@@ -102,7 +96,7 @@
         display: block;
         box-sizing: border-box;
       }
-  
+
       .auto-load-img-empty {
         min-height:1000px;
         width: 100px !important;
@@ -125,9 +119,7 @@
     function debounce(fn, delay) {
       let timer;
       return function() {
-        if (timer) {
-          clearTimeout(timer);
-        }
+        if (timer) clearTimeout(timer);
         timer = setTimeout(fn, delay);
       };
     }
@@ -138,9 +130,8 @@
         const base = 200;
         if (top < base && bottom > base) {
           const source = img.dataset.source;
-          if (location.pathname !== source) {
-            history.replaceState(null, "", source);
-          }
+          if (location.pathname === source) continue;
+          history.replaceState(null, "", source);
           return;
         }
       }
@@ -163,9 +154,6 @@
   // src/views/detail.ts
   var $ = (selector) => document.querySelector(selector);
   function getPageInfo() {
-    const rows = +$("#gdo2 .ths").textContent.replace(" rows", "");
-    const mode = $("#gdo4 .ths").textContent.toLowerCase();
-    const pageSize = (mode === "normal" ? 10 : 5) * rows;
     const total = +$(".gtb p.gpc").textContent.match(/of\s(?<total>\d+)\simages/).groups.total;
     const url = new URL(window.location.href);
     let currentPage = 0;
@@ -178,39 +166,26 @@
       url.searchParams.set("p", 1 + currentPage + i + "");
       return url.toString();
     });
-    return {
-      rows,
-      mode,
-      url,
-      total,
-      currentPage,
-      pageSize,
-      pageCount,
-      unloadPageLinks
-    };
+    return { url, total, currentPage, pageCount, unloadPageLinks };
   }
   var isLoading = false;
   async function loadNextPage(info) {
-    if (isLoading)
-      return;
+    if (isLoading) return;
     let url = info.unloadPageLinks.shift();
-    if (url) {
-      isLoading = true;
-      const html = await fetch(url).then((r) => r.text());
-      isLoading = false;
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      $("#gdt").append(...doc.querySelector("#gdt").childNodes);
-    }
+    if (!url) return;
+    isLoading = true;
+    const html = await fetch(url).then((r) => r.text());
+    isLoading = false;
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    $("#gdt").append(...doc.querySelector("#gdt").childNodes);
   }
   async function setup2() {
     const info = getPageInfo();
-    if (!info.unloadPageLinks.length)
-      return;
+    if (!info.unloadPageLinks.length) return;
     document.addEventListener("scroll", () => {
       const dom = document.scrollingElement;
-      if ($("#cdiv").getBoundingClientRect().y <= dom.scrollTop + dom.clientHeight + 2e3) {
-        loadNextPage(info);
-      }
+      if ($("#cdiv").getBoundingClientRect().y > dom.scrollTop + dom.clientHeight + 2e3) return;
+      loadNextPage(info);
     });
   }
   if (/\/g\/.*\/.*/.test(window.location.pathname)) {
